@@ -22,8 +22,27 @@ class xbtce (Exchange):
             'has': {
                 'publicAPI': False,
                 'CORS': False,
-                'fetchTickers': True,
                 'createMarketOrder': False,
+                'cancelOrder': True,
+                'createDepositAddress': False,
+                'createOrder': True,
+                'deposit': False,
+                'fetchBalance': True,
+                'fetchClosedOrders': False,
+                'fetchCurrencies': False,
+                'fetchDepositAddress': False,
+                'fetchMarkets': True,
+                'fetchMyTrades': False,
+                'fetchOHLCV': False,
+                'fetchOpenOrders': True,
+                'fetchOrder': True,
+                'fetchOrderBook': True,
+                'fetchOrders': False,
+                'fetchTicker': True,
+                'fetchTickers': True,
+                'fetchBidsAsks': False,
+                'fetchTrades': False,
+                'withdraw': False,
             },
             'urls': {
                 'logo': 'https://user-images.githubusercontent.com/1294454/28059414-e235970c-662c-11e7-8c3a-08e31f78684b.jpg',
@@ -233,9 +252,9 @@ class xbtce (Exchange):
         ticker = tickers[market['id']]
         return self.parse_ticker(ticker, market)
 
-    async def fetch_trades(self, symbol, since=None, limit=None, params={}):
+    async def fetch_open_orders(self, symbol=None, since=None, limit=None, params={}):
+        # xbtce API is confusing: ORDER (ccxt term) == TRADE (xbtce term)
         await self.load_markets()
-        # no method for trades?
         return await self.privateGetTrade(params)
 
     def parse_ohlcv(self, ohlcv, market=None, timeframe='1m', since=None, limit=None):
@@ -266,15 +285,26 @@ class xbtce (Exchange):
         #     return self.parse_ohlcvs(response['Bars'], market, timeframe, since, limit)
         raise NotSupported(self.id + ' fetchOHLCV is disabled by the exchange')
 
+    async def fetch_order(self, id, symbol=None, params={}):
+        response = await self.privateGetTradeId(self.extend({
+            'id': id,
+        }, params))
+        return {
+            'id': str(response['Id']),
+            'status': response['Status'],
+            'info': response
+        }
+
     async def create_order(self, symbol, type, side, amount, price=None, params={}):
         await self.load_markets()
         if type == 'market':
             raise ExchangeError(self.id + ' allows limit orders only')
-        response = await self.tapiPostTrade(self.extend({
-            'pair': self.market_id(symbol),
-            'type': side,
-            'amount': amount,
-            'rate': price,
+        response = await self.privatePostTrade(self.extend({
+            'Symbol': self.market_id(symbol),
+            'Type': type,
+            'Side': side,
+            'Amount': amount,
+            'Price': price,
         }, params))
         return {
             'info': response,
@@ -282,10 +312,15 @@ class xbtce (Exchange):
         }
 
     async def cancel_order(self, id, symbol=None, params={}):
-        return await self.privateDeleteTrade(self.extend({
+        response = await self.privateDeleteTrade(self.extend({
             'Type': 'Cancel',
             'Id': id,
         }, params))
+        return {
+            'id': response['Trade']['Id'],
+            'status': response['Trade']['Status'],
+            'info': response
+        }
 
     def nonce(self):
         return self.milliseconds()
@@ -307,8 +342,8 @@ class xbtce (Exchange):
             self.check_required_credentials()
             headers = {'Accept-Encoding': 'gzip, deflate'}
             nonce = str(self.nonce())
-            if method == 'POST':
-                if query:
+            if query:
+                if method == 'POST':
                     headers['Content-Type'] = 'application/json'
                     body = self.json(query)
                 else:
